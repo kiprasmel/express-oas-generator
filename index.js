@@ -13,6 +13,19 @@ let predefinedSpec;
 let spec = {};
 let lastRecordTime = new Date().getTime();
 
+/**
+ * @param {boolean} [responseMiddlewareHasBeenApplied=false]
+ *
+ * @description used make sure the *order* of which the middlewares are applied is correct
+ *
+ * The `response` middleware MUST be applied FIRST,
+ * before the `request` middleware is applied.
+ *
+ * We'll use this to make sure the order is correct.
+ * If not - we'll throw an informative error.
+ */
+let responseMiddlewareHasBeenApplied = false;
+
 function updateSpecFromPackage() {
 
   /* eslint global-require : off */
@@ -172,6 +185,8 @@ function updateSchemesAndHost(req) {
  * @returns void
  */
 function injectResponseMiddleware(expressApp, options = { pathToOutputFile: undefined, writeIntervalMs: 1000 * 10 }) {
+  responseMiddlewareHasBeenApplied = true;
+
   /**
    * save the `expressApp` to our local `app` variable.
    * Used here, but not in `injestRequestMiddleware`,
@@ -227,6 +242,26 @@ function injectResponseMiddleware(expressApp, options = { pathToOutputFile: unde
  * @returns void
  */
 function injectRequestMiddleware() {
+  if (!responseMiddlewareHasBeenApplied) {
+    const wrongMiddlewareOrderError = `\
+Express oas generator:
+
+you miss-placed the **response** and **request** middlewares!
+
+Please, make sure to:
+
+1. place the RESPONSE middleware FIRST,
+right after initializing the express app,
+
+2. and place the REQUEST middleware LAST,
+inside the app.listen callback
+
+For more information, see https://github.com/mpashkovskiy/express-oas-generator#Advanced-usage-recommended
+	`;
+
+    throw new Error(wrongMiddlewareOrderError);
+  }
+
   /** middleware to handle REQUESTS */
   // eslint-disable-next-line complexity
   app.use((req, res, next) => {
