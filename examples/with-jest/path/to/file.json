@@ -1,0 +1,51 @@
+{
+  "info": {
+    "title": "with-jest",
+    "version": "1.0.0",
+    "license": {
+      "name": "MIT"
+    },
+    "description": "[Specification JSON](/api-spec)"
+  },
+  "paths": {
+    "/api/v1/student": {
+      "get": {
+        "summary": "/api/v1/student",
+        "consumes": [
+          "application/json"
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "schema": {
+              "type": "object",
+              "properties": {
+                "student": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "number",
+                      "example": 1337
+                    },
+                    "name": {
+                      "type": "string",
+                      "example": "Robert'); DROP TABLE Students;--"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "produces": [
+          "application/json"
+        ]
+      }
+    }
+  },
+  "swagger": "2.0",
+  "schemes": [
+    "http"
+  ],
+  "host": "localhost:5069"
+}
