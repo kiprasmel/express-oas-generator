@@ -7,14 +7,20 @@
  * https://www.typescriptlang.org/docs/handbook/declaration-files/publishing.html
  */
 
-import { Express } from 'express';
+import { Express, Request, Response, NextFunction, RequestHandler } from 'express';
 import { OpenAPIV2,OpenAPIV3 } from 'openapi-types';
+
+/** shall match the default `handleMiddleware` */
+declare function expressOasGenerator(options: expressOasGenerator.HandleResponsesOptions): RequestHandler;
+
+declare module expressOasGenerator {
 
 /** re-export for ease of use for the end user */
 export {
 	OpenAPIV2,
 	OpenAPIV3
 };
+
 
 /** Options for `handleResponses` */
 export interface HandleResponsesOptions {
@@ -56,7 +62,7 @@ export interface HandleResponsesOptions {
  *
  * @description apply the `response` middleware.
  */
-export function handleResponses(expressApp: Express, options: HandleResponsesOptions): void;
+export function handleResponses(req: Request, res: Response, next: NextFunction, options: HandleResponsesOptions): void;
 
 /**
  * Apply this **last**!
@@ -70,7 +76,7 @@ export function handleResponses(expressApp: Express, options: HandleResponsesOpt
  * it also initializes the specification and serves the api documentation.
  * The options are for these tasks.
  */
-export function handleRequests(): void;
+export function handleRequests(req: Request, res: Response, next: NextFunction): void;
 
 /**
  * @warn it's preferred that you use `handleResponses`,
@@ -89,7 +95,9 @@ export function handleRequests(): void;
  * and also will call `serveApiDocs`.
  */
 export function init(
-	expressApp: Express,
+	req: Request,
+	res: Response,
+	next: NextFunction,
 	predefinedSpec?: HandleResponsesOptions['predefinedSpec'],
 	specOutputPath?: HandleResponsesOptions['specOutputPath'],
 	writeIntervalMs?: HandleResponsesOptions['writeIntervalMs'],
@@ -105,3 +113,18 @@ export const getSpec: () => object | OpenAPIV2.Document;
 export const getSpecV3: (callback: (err: object | string, specV3: object | OpenAPIV3.Document) => void) => void
 
 export const setPackageInfoPath: (pkgInfoPath: string) => void;
+
+/**
+ * serve the openAPI docs with swagger at a specified path / url
+*/
+export function serveApiDocs(app: Express): void;
+
+/** shall match the default export */
+export function handlerMiddleware(options: expressOasGenerator.HandleResponsesOptions): RequestHandler;
+}
+
+/**
+ * export both the `expressOasGenerator` namespace AND the default initialization function
+ * since they both have the same name (trick I found from Express itself)
+ */
+export = expressOasGenerator;

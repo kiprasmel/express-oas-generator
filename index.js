@@ -1,3 +1,4 @@
+/* eslint-disable complexity */
 /**
  * @fileOverview main file
  * @module index
@@ -42,7 +43,6 @@ For more information, see https://github.com/mpashkovskiy/express-oas-generator#
 
 let packageJsonPath = `${process.cwd()}/package.json`;
 let packageInfo;
-let app;
 
 /**
  * @param {function|object} predefinedSpec either the Swagger specification
@@ -144,7 +144,7 @@ function swaggerServeMiddleware(version) {
  * @description Applies spec middlewares
  * @param version Available open api versions: 'v2' (default if empty) or 'v3'.
  */
-function applySpecMiddlewares(version = '') {
+function applySpecMiddlewares(app, version = '') {
   const apiSpecBasePath = packageInfo.baseUrlPath.concat('/api-spec');
   const baseSwaggerServePath = packageInfo.baseUrlPath.concat('/' + swaggerUiServePath);
 
@@ -157,7 +157,7 @@ function applySpecMiddlewares(version = '') {
  *
  * @returns void
  */
-function prepareSpec() {
+function prepareSpec(app) {
   spec = { swagger: '2.0', paths: {} };
 
   const endpoints = listEndpoints(app);
@@ -200,19 +200,17 @@ function prepareSpec() {
 }
 
 /**
- * @description serve the openAPI docs with swagger at a specified path / url
- *
- * @returns void
+ * @type { typeof import('./index').serveApiDocs } 
  */
-function serveApiDocs() {
-  prepareSpec();
+function serveApiDocs(app) {
+  prepareSpec(app);
 
-  applySpecMiddlewares(versions.OPEN_API_V2);
+  applySpecMiddlewares(app, versions.OPEN_API_V2);
   
-  applySpecMiddlewares(versions.OPEN_API_V3);
+  applySpecMiddlewares(app, versions.OPEN_API_V3);
 
   // Base path middleware should be applied after specific versions
-  applySpecMiddlewares(); 
+  applySpecMiddlewares(app); 
 }
 
 /**
@@ -233,13 +231,17 @@ function patchSpec(predefinedSpec) {
  * @param req
  * @returns {string|undefined|*}
  */
-function getPathKey(req) {
-  if (!req.url || spec.paths[req.url]) {
+function getPathKey(req) {	
+  // eslint-disable-next-line no-console
+  console.error('req url @ getPathKey', req === undefined, req && req.url);
+
+  //   if (!req.url || spec.paths[req.url]) {
+  if (!req.url) {
     return req.url;
   }
 
   const url = req.url.split('?')[0];
-  const pathKeys = Object.keys(spec.paths);
+  const pathKeys = Object.keys(spec.paths || {});
   for (let i = 0; i < pathKeys.length; i += 1) {
     const pathKey = pathKeys[i];
     if (url.match(`${pathKey.replace(/{([^/]+)}/g, '(?:([^\\\\/]+?))')}/?$`)) {
@@ -266,7 +268,13 @@ function getMethod(req) {
 
   const pathKey = getPathKey(req);
   if (!pathKey) {
-    return undefined;
+    return { method: { summary: path,
+      consumes: ['application/json'],
+      parameters: [],
+      responses: {},
+      // tags: matchingTags(tagsSpecs || [], path},
+    },
+    pathKey: undefined };
   }
 
   return { method: spec.paths[pathKey][m], pathKey };
@@ -311,7 +319,7 @@ function updateTagsSpec(tags) {
 /**
  * @type { typeof import('./index').handleResponses }
 */
-function handleResponses(expressApp, 
+function handleResponses(req, res, next, 
   options = { 
     swaggerUiServePath: DEFAULT_SWAGGER_UI_SERVE_PATH, 
     specOutputPath: undefined, 
@@ -324,7 +332,7 @@ function handleResponses(expressApp,
   }) {
 
   ignoredNodeEnvironments = options.ignoredNodeEnvironments || DEFAULT_IGNORE_NODE_ENVIRONMENTS;
-  const isEnvironmentIgnored = ignoredNodeEnvironments.includes(process.env.NODE_ENV);
+  const isEnvironmentIgnored = process.env.NODE_ENV !== undefined && ignoredNodeEnvironments.includes(process.env.NODE_ENV);
   serveDocs = options.alwaysServeDocs;
   
   if (serveDocs === undefined) {
@@ -335,12 +343,6 @@ function handleResponses(expressApp,
     logger.warn(UNDEFINED_NODE_ENV_ERROR(ignoredNodeEnvironments));
   }
   
-  /**
-   * save the `expressApp` to our local `app` variable.
-   * Used here, but not in `handleRequests`,
-   * because this comes before it.
-   */
-  app = expressApp;
   swaggerUiServePath = options.swaggerUiServePath || DEFAULT_SWAGGER_UI_SERVE_PATH;
   predefinedSpec = options.predefinedSpec || {};
   
@@ -348,6 +350,7 @@ function handleResponses(expressApp,
   updateTagsSpec(options.tags || options.mongooseModels);
   
   if (isEnvironmentIgnored) {
+    // next();
     return;
   }
   
@@ -355,84 +358,93 @@ function handleResponses(expressApp,
   const { specOutputPath, writeIntervalMs } = options;
 
   /** middleware to handle RESPONSES */
-  app.use((req, res, next) => {
-    try {
-      const methodAndPathKey = getMethod(req);
-      if (methodAndPathKey && methodAndPathKey.method) {
-        processors.processResponse(res, methodAndPathKey.method);
-      }
-
-      const ts = new Date().getTime();
-      if (firstResponseProcessing || specOutputPath && ts - lastRecordTime > writeIntervalMs) {
-        firstResponseProcessing = false;
-        lastRecordTime = ts;
-
-        fs.writeFileSync(specOutputPath, JSON.stringify(spec, null, 2), 'utf8');
-
-        convertOpenApiVersionToV3(spec, (err, specV3) => {
-          if (!err) {
-            const parsedSpecOutputPath = path.parse(specOutputPath);
-            const {name, ext} = parsedSpecOutputPath;
-            parsedSpecOutputPath.base = name.concat('_').concat(versions.OPEN_API_V3).concat(ext);
-            
-            const v3Path = path.format(parsedSpecOutputPath);
-            
-            fs.writeFileSync(v3Path, JSON.stringify(specV3), 'utf8');
-          }
-          /** TODO - Log that open api v3 could not be generated */
-        });  
-
-      }
-    } catch (e) {
-      /** TODO - shouldn't we do something here? */
-    } finally {
-      /** always call the next middleware */
-      next();
+  try {
+    const methodAndPathKey = getMethod(req);
+    if (methodAndPathKey && methodAndPathKey.method) {
+      processors.processResponse(res, methodAndPathKey.method);
     }
-  });
+
+    const ts = new Date().getTime();
+    if (firstResponseProcessing || specOutputPath && ts - lastRecordTime > writeIntervalMs) {
+      firstResponseProcessing = false;
+      lastRecordTime = ts;
+
+      fs.writeFileSync(specOutputPath, JSON.stringify(spec, null, 2), 'utf8');
+
+      convertOpenApiVersionToV3(spec, (err, specV3) => {
+        if (!err) {
+          const parsedSpecOutputPath = path.parse(specOutputPath);
+          const {name, ext} = parsedSpecOutputPath;
+          parsedSpecOutputPath.base = name.concat('_').concat(versions.OPEN_API_V3).concat(ext);
+            
+          const v3Path = path.format(parsedSpecOutputPath);
+            
+          fs.writeFileSync(v3Path, JSON.stringify(specV3), 'utf8');
+        }
+        /** TODO - Log that open api v3 could not be generated */
+      });  
+
+    }
+  } catch (e) {
+    /** TODO - shouldn't we do something here? */
+  } finally {
+    /** always call the next middleware */
+    // next();
+    return; // will be handled @ handlerMiddleware
+  }
 }
 
 /**
  * @type { typeof import('./index').handleRequests }
  */
-function handleRequests() {
+function handleRequests(req, _res, next) {
+//   console.error('req', req);
   
   const isIgnoredEnvironment = ignoredNodeEnvironments.includes(process.env.NODE_ENV);
-  if (serveDocs || !isIgnoredEnvironment) {      
-    /** forward options to `serveApiDocs`: */
-    serveApiDocs();
-  }
+
+  // eslint-disable-next-line no-console
+  console.error('isIgnoredEnvironment', isIgnoredEnvironment, 'responseMiddlewareHasBeenApplied', responseMiddlewareHasBeenApplied);
+
+  /** TODO: Deprecate (allow the user to serve the docs themselves via utility fn) */
+  //   if (serveDocs || !isIgnoredEnvironment) {      
+  //     /** forward options to `serveApiDocs`: */
+  //     serveApiDocs();
+  //   }
 
   if (isIgnoredEnvironment) {
+    next();
     return;
   }
   
   /** make sure the middleware placement order (by the user) is correct */
-  if (responseMiddlewareHasBeenApplied !== true) {
-    throw new Error(WRONG_MIDDLEWARE_ORDER_ERROR);
-  }
+  //   if (responseMiddlewareHasBeenApplied !== true) {
+  //     throw new Error(WRONG_MIDDLEWARE_ORDER_ERROR);
+  //   }
 
   /** everything was applied correctly; reset the global variable. */
   responseMiddlewareHasBeenApplied = false;
 
   /** middleware to handle REQUESTS */
-  app.use((req, res, next) => {
-    try {
-      const methodAndPathKey = getMethod(req);
-      if (methodAndPathKey && methodAndPathKey.method && methodAndPathKey.pathKey) {
-        const method = methodAndPathKey.method;
-        updateSchemesAndHost(req);
-        processors.processPath(req, method, methodAndPathKey.pathKey);
-        processors.processHeaders(req, method, spec);
-        processors.processBody(req, method);
-        processors.processQuery(req, method);
-      }
-    } catch (e) {
-      /** TODO - shouldn't we do something here? */
-    } finally {
-      next();
+  try {
+    const methodAndPathKey = getMethod(req);
+    // eslint-disable-next-line no-console
+    console.error('pathKey', methodAndPathKey && methodAndPathKey.pathKey);
+    if (methodAndPathKey && methodAndPathKey.method && methodAndPathKey.pathKey) {
+      const method = methodAndPathKey.method;
+      updateSchemesAndHost(req);
+      processors.processPath(req, method, methodAndPathKey.pathKey);
+      processors.processHeaders(req, method, spec);
+      processors.processBody(req, method);
+      processors.processQuery(req, method);
     }
-  });
+  } catch (e) {
+    /** TODO - shouldn't we do something here? */
+
+    // eslint-disable-next-line no-console
+    console.error(e);
+  } finally {
+    next();
+  }
 }
 
 /**
@@ -452,8 +464,8 @@ function handleRequests() {
 /**
  * @type { typeof import('./index').init }
  */
-function init(aApp, aPredefinedSpec = {}, aSpecOutputPath = undefined, aWriteInterval = 1000 * 10, aSwaggerUiServePath = DEFAULT_SWAGGER_UI_SERVE_PATH, aMongooseModels = [], aTags = undefined, aIgnoredNodeEnvironments = DEFAULT_IGNORE_NODE_ENVIRONMENTS, aAlwaysServeDocs = undefined) {
-  handleResponses(aApp, {
+function init(req, res, next, aPredefinedSpec = {}, aSpecOutputPath = undefined, aWriteInterval = 1000 * 10, aSwaggerUiServePath = DEFAULT_SWAGGER_UI_SERVE_PATH, aMongooseModels = [], aTags = undefined, aIgnoredNodeEnvironments = DEFAULT_IGNORE_NODE_ENVIRONMENTS, aAlwaysServeDocs = undefined) {
+  handleResponses(req, res, next, {
     swaggerUiServePath: aSwaggerUiServePath,
     specOutputPath: aSpecOutputPath,
     predefinedSpec: aPredefinedSpec,
@@ -463,8 +475,30 @@ function init(aApp, aPredefinedSpec = {}, aSpecOutputPath = undefined, aWriteInt
     ignoredNodeEnvironments: aIgnoredNodeEnvironments,
     alwaysServeDocs: aAlwaysServeDocs
   });
-  setTimeout(() => handleRequests(), 1000);
+  setTimeout(() => handleRequests(req, res, next), 1000);
 }
+
+/**
+ * @type { typeof import('./index').handlerMiddleware }
+ */
+const handlerMiddleware = options => (req, res, next) => {
+  handleResponses(req, res, next, options);
+
+  //   req.once('close', () => {
+  //     handleRequests(req, res, next);
+  //   });
+
+  res.once('finish', function() {
+    // eslint-disable-next-line no-console
+    // console.error('RES FINISH', res.req);
+
+    // handleRequests(res.req || req, res, next);
+	
+    handleRequests(req, res, next);
+  });
+
+  next();
+};
 
 /**
  * @type { typeof import('./index').getSpec }
@@ -489,11 +523,20 @@ const setPackageInfoPath = pkgInfoPath => {
   packageJsonPath = `${process.cwd()}/${pkgInfoPath}/package.json`;
 };
 
-module.exports = {
-  handleResponses,
-  handleRequests,
-  init,
-  getSpec,
-  getSpecV3,
-  setPackageInfoPath
-};
+/** 
+ * each export needs to be individual
+ * to allow the default export to work
+ * 
+ * NOTE: This must be the first export
+ * before all the other ones!
+ */
+module.exports = handlerMiddleware;
+
+module.exports.handleResponses = handleResponses;
+module.exports.handleRequests = handleRequests,
+module.exports.init = init,
+module.exports.serveApiDocs = serveApiDocs,
+module.exports.handlerMiddleware = handlerMiddleware,
+module.exports.getSpec = getSpec,
+module.exports.getSpecV3 = getSpecV3,
+module.exports.setPackageInfoPath = setPackageInfoPath;

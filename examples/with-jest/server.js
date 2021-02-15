@@ -1,5 +1,5 @@
 const express = require('express');
-const { handleResponses, handleRequests } = require('express-oas-generator');
+const expressOasGenerator = require('express-oas-generator');
 
 /** work-around until we fix https://github.com/mpashkovskiy/express-oas-generator/issues/51 */
 const mkdirp = require('mkdirp');
@@ -28,12 +28,15 @@ if (process.env.NODE_ENV !== 'production') {
     //
   }
 
-  /** work-arounds done. Now handle responses - MUST be the FIRST middleware */
-  handleResponses(app, {
+  /** work-arounds done -- now apply the handler */
+
+  app.use(expressOasGenerator({
     specOutputPath: openAPIFilePath,
     writeIntervalMs: 0,
     predefinedSpec: predefinedSpec ? () => predefinedSpec : undefined,
-  });
+  }));
+
+  /** done! */
 }
 
 /** add any other middleware */
@@ -63,11 +66,6 @@ app.get('/api/v1/student', (_req, res, next) => {
     next(e);
   }
 });
-
-/** lastly - add the express-oas-generator request handler (MUST be the LAST middleware) */
-if (process.env.NODE_ENV !== 'production') {
-  handleRequests();
-}
 
 /** optionally - export the app if you need it */
 module.exports.app = app;
