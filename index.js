@@ -494,7 +494,9 @@ const handlerMiddleware = options => (req, res, next) => {
 
     // handleRequests(res.req || req, res, next);
 	
-    handleRequests(req, res, next);
+    res.app.use((newReq, newRes, newNext) => {
+      handleRequests(newReq, newRes, newNext);
+    });
   });
 
   next();
