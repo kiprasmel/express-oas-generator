@@ -76,7 +76,7 @@ export function handleResponses(req: Request, res: Response, next: NextFunction,
  * it also initializes the specification and serves the api documentation.
  * The options are for these tasks.
  */
-export function handleRequests(req: Request, res: Response, next: NextFunction): void;
+export function handleRequests(app: Express): void;
 
 /**
  * @warn it's preferred that you use `handleResponses`,

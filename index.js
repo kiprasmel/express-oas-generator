@@ -397,22 +397,15 @@ function handleResponses(req, res, next,
 /**
  * @type { typeof import('./index').handleRequests }
  */
-function handleRequests(req, _res, next) {
-//   console.error('req', req);
+function handleRequests(app) {
   
   const isIgnoredEnvironment = ignoredNodeEnvironments.includes(process.env.NODE_ENV);
-
-  // eslint-disable-next-line no-console
-  console.error('isIgnoredEnvironment', isIgnoredEnvironment, 'responseMiddlewareHasBeenApplied', responseMiddlewareHasBeenApplied);
-
-  /** TODO: Deprecate (allow the user to serve the docs themselves via utility fn) */
-  //   if (serveDocs || !isIgnoredEnvironment) {      
-  //     /** forward options to `serveApiDocs`: */
-  //     serveApiDocs();
-  //   }
+  if (serveDocs || !isIgnoredEnvironment) {      
+    /** forward options to `serveApiDocs`: */
+    serveApiDocs(app);
+  }
 
   if (isIgnoredEnvironment) {
-    next();
     return;
   }
   
@@ -425,27 +418,25 @@ function handleRequests(req, _res, next) {
   responseMiddlewareHasBeenApplied = false;
 
   /** middleware to handle REQUESTS */
-  try {
-    const methodAndPathKey = getMethod(req);
-    // eslint-disable-next-line no-console
-    console.error('pathKey', methodAndPathKey && methodAndPathKey.pathKey);
-    if (methodAndPathKey && methodAndPathKey.method && methodAndPathKey.pathKey) {
-      const method = methodAndPathKey.method;
-      updateSchemesAndHost(req);
-      processors.processPath(req, method, methodAndPathKey.pathKey);
-      processors.processHeaders(req, method, spec);
-      processors.processBody(req, method);
-      processors.processQuery(req, method);
+  app.use((req, res, next) => {
+    try {
+      const methodAndPathKey = getMethod(req);
+      if (methodAndPathKey && methodAndPathKey.method && methodAndPathKey.pathKey) {
+        const method = methodAndPathKey.method;
+        updateSchemesAndHost(req);
+        processors.processPath(req, method, methodAndPathKey.pathKey);
+        processors.processHeaders(req, method, spec);
+        processors.processBody(req, method);
+        processors.processQuery(req, method);
+      }
+    } catch (e) {
+      /** TODO - shouldn't we do something here? */
+    } finally {
+      next();
     }
-  } catch (e) {
-    /** TODO - shouldn't we do something here? */
-
-    // eslint-disable-next-line no-console
-    console.error(e);
-  } finally {
-    next();
-  }
+  });
 }
+
 
 /**
  * TODO
@@ -475,29 +466,23 @@ function init(req, res, next, aPredefinedSpec = {}, aSpecOutputPath = undefined,
     ignoredNodeEnvironments: aIgnoredNodeEnvironments,
     alwaysServeDocs: aAlwaysServeDocs
   });
-  setTimeout(() => handleRequests(req, res, next), 1000);
+  setTimeout(() => handleRequests(res.app), 1000);
 }
 
 /**
  * @type { typeof import('./index').handlerMiddleware }
  */
 const handlerMiddleware = options => (req, res, next) => {
-  handleResponses(req, res, next, options);
-
-  //   req.once('close', () => {
-  //     handleRequests(req, res, next);
-  //   });
-
   res.once('finish', function() {
     // eslint-disable-next-line no-console
     // console.error('RES FINISH', res.req);
 
     // handleRequests(res.req || req, res, next);
 	
-    res.app.use((newReq, newRes, newNext) => {
-      handleRequests(newReq, newRes, newNext);
-    });
+    handleRequests(res.app);
   });
+
+  handleResponses(req, res, next, options);
 
   next();
 };
